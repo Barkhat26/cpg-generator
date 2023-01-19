@@ -1,0 +1,9 @@
+import jpype
+jpype.addClassPath('bsh-2.0b5.jar')
+jpype.startJVM(convertStrings=False)
+
+Interpreter = jpype.JClass("bsh.Interpreter")
+interpreter = Interpreter()
+interpreter.setStrictJava(True)
+interpreter.eval("import java.util.Map;")
+interpreter.eval("Map<String, String> userList = new Map<String,String>()")

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Java-классы</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='font-awesome/css/font-awesome.min.css') }}">
+  <style>
+    .header {
+      padding-left: 10px;
+    }
+
+    .package-name {
+      color: #96458d;
+    }
+
+    .class-name {
+      color: #a8590e;
+    }
+
+    .qualified-name {
+      font-family: 'Consolas', 'Deja Vu Sans Mono', 'Bitstream Vera Sans Mono', monospace;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Главная. Список Java-классов</h1>
+  </div>
+  <table class="table table-sm table-striped">
+    <tr>
+      <th>Полное имя класса</th>
+      <th class="text-center"><i class="fa fa-sitemap" aria-hidden="true"></i> Абстрактное синтаксическое дерево</th>
+      <th class="text-center"><i class="fa fa-cogs" aria-hidden="true"></i> Методы</th>
+      <th class="text-center"><i class="fa fa-code" aria-hidden="true"></i> Исходный код</th>
+    </tr>
+
+    {% for qn, jc in javaClasses.items() %}
+    <tr>
+      <td class="qualified-name"><span class="package-name">{{ jc.package }}</span>.<span class="class-name">{{ jc.name }}</span></td>
+      <td class="text-center"><a href="{{ url_for('showAST',  qualifiedClassName=qn) }} ">Открыть</a></td>
+      <td class="text-center"><a href="{{ url_for('showMethods',  qualifiedClassName=qn) }}">Открыть</a></td>
+      <td class="text-center"><a href="{{ url_for('getSourceCode', qualifiedClassName=qn) }}">Открыть</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

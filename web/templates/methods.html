@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Методы</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='font-awesome/css/font-awesome.min.css') }}">
+  <style>
+    .header {
+      padding-left: 10px;
+    }
+
+    .package-name {
+      color: #96458d;
+    }
+
+    .class-name {
+      color: #a8590e;
+    }
+
+    .method-name {
+      font-family: 'Consolas', 'Deja Vu Sans Mono', 'Bitstream Vera Sans Mono', monospace;
+    }
+  </style>
+</head>
+<body>
+<div class="header">
+  <h1>Список методов</h1>
+  <h2>Класс <span class="package-name">{{ javaClass.package }}</span>.<span class="class-name">{{ javaClass.name }}</span></h2>
+  <p><a href="{{ url_for('showJavaClasses') }}"> <i class="fa fa-arrow-left" aria-hidden="true"></i> К списку классов</a></p>
+</div>
+<table class="table table-sm table-striped">
+  <tr>
+    <th>Название метода</th>
+    <th class="text-center"><i class="fa fa-cogs" aria-hidden="true"></i> CFG</th>
+    <th class="text-center"><i class="fa fa-sitemap" aria-hidden="true"></i> DFG</th>
+  </tr>
+  {% for method in methods %}
+  <tr>
+    <td class="method-name">{{ method.name }}</td>
+    <td class="text-center"><a href="{{ url_for('showCFG', qualifiedMethodName=javaClass.package + '.' + javaClass.name +'.'+method.name) }}">Открыть</a></td>
+    <td class="text-center"><a href="{{ url_for('showDFG', qualifiedMethodName=javaClass.package + '.' + javaClass.name +'.'+method.name) }}">Открыть</a></td>
+  </tr>
+  {% endfor %}
+</table>
+</body>
+</html>

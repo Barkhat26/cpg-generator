@@ -1,0 +1,56 @@
+import argparse
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument(dest="command", action="store", choices=["init", "run", "web"], help="command")
+    args = parser.parse_args()
+
+    if args.command == "init":
+        print("INIT command has been run")
+    elif args.command == "run":
+        print("DAST module is running...")
+        print("Searching SQL injection vulnerabilities...")
+        print("Searching for source locations...")
+        print("Found N source locations")
+        print("Searching for sink locations...")
+        print("Found N sink locations")
+        print("Searching for sequential sources and sinks...")
+        print("Checking reachability from source to sink... (source at line N - sink at line N)")
+        print("Reachability exists")
+        print("Found N tainted paths")
+        print("Testing found sequential sources and links...")
+
+        print("Searching for HTML injection vulnerabilities (XSS attacks)...")
+        print("Searching for source locations...")
+        print("Found N source locations")
+        print("Searching for sink locations...")
+        print("Found N sink locations")
+        print("Searching for sequential sources and sinks...")
+        print("Checking reachability from source to sink... (source at line N - sink at line N)")
+        print("Reachability exists")
+        print("Found N tainted paths")
+        print("Testing found sequential sources and links...")
+
+        print("Searching for command injection vulnerabilities...")
+        print("Searching for source locations...")
+        print("Found N source locations")
+        print("Searching for sink locations...")
+        print("Found N sink locations")
+        print("Searching for sequential sources and sinks...")
+        print("Checking reachability from source to sink... (source at line N - sink at line N)")
+        print("Reachability exists")
+        print("Found N tainted paths")
+        print("Testing found sequential sources and links...")
+
+        print("Searching for path traversal vulnerabilities...")
+        print("Searching for source locations...")
+        print("Found N source locations")
+        print("Searching for sink locations...")
+        print("Found N sink locations")
+        print("Searching for sequential sources and sinks...")
+        print("Checking reachability from source to sink... (source at line N - sink at line N)")
+        print("Reachability exists")
+        print("Found N tainted paths")
+        print("Testing found sequential sources and links...")
+    elif args.command == "web":
+        print("WEB command has been run")
