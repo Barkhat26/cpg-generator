@@ -1,4 +1,4 @@
 venv/
-backup/
+src/backup/
 .idea/
 __pycache__/
