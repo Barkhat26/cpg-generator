@@ -24,7 +24,7 @@ def showJavaClasses():
         javaClassesJson = json.load(f)["javaClasses"]
 
     javaClasses = dict()
-    for qn, jc in javaClassesJson.items():
+    for qn, jc in javaClassesJson._items():
         javaClasses[qn] = JavaClassSchema().load(jc)
     return render_template("java-classes.html", javaClasses=javaClasses)
 

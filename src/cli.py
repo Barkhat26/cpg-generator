@@ -1,244 +1,160 @@
-import json
-import os
-import sys
+import argparse
+import logging
+from pathlib import Path
+from enum import Enum
 
-from ASTBuilder import ASTBuilder
-from CFGBuilder import CFGBuilder
-from DFGBuilder import DFGBuilder
-from GremlinDriver import Gremlin
-from gremlin_python.process.graph_traversal import __
-from JavaClassExtractor import JavaClassExtractor
-from OrientDBDriver import OrientDB
-from TaintFlow.SinksManager import SinksManager
-from TaintFlow.SourcesManager import SourcesManager
-from TaintFlow.utils import checkDFReachability, deleteDuplicateTaintFlows
 from config import Config
-from db import Database, DBCollections
-from web.app import runWebApp
+from graph_builders.as_forest_builder import AbstractSyntaxForestBuilder
+from graph_builders.ast_builder import ASTBuilder
+from graph_builders.cfg_builder import CFGBuilder
+from graph_builders.dfg_builder import DFGBuilder
+from java.java_class_extractor import JavaClassExtractor
+from storage import ASTStorage, CFGStorage, JavaClassesStorage, DFGStorage
+from taint_flow.analyzer import TaintFlowAnalyzer
+from taint_flow.web_framework_kind import WebFrameworkKind
+from log import general_logger as logger, set_global_log_level
 
 
-def runJClassesExtracting(projectConfig):
-    db = Database(projectConfig)
-    db.clear(DBCollections.JavaClasses)
-    print("Obtaining Java classes info...")
-    for dirname, dirnames, filenames in os.walk(projectConfig["target-dir"]):
-        for filename in filenames:
-            if not filename.endswith(".java"):
-                continue
-            filePath = os.path.join(dirname, filename)
-            print("Handling: " + filePath)
-            javaClassExtractor = JavaClassExtractor(projectConfig)
-            javaClassExtractor.extractInfo(filePath)
-            javaClassExtractor.dump()
+class LogLevelArg(Enum):
+    none = logging.NOTSET
+    info = logging.INFO
+    warn = logging.WARN
+    error = logging.ERROR
+    debug = logging.DEBUG
 
-    print("Done")
-    print("Dumping database...")
-    db.commit()
+    @classmethod
+    def from_str(cls, log_level_name: str):
+        for log_level in list(cls):
+            if log_level.name == log_level_name:
+                return log_level.value
 
-
-def runASTBuilding(projectConfig):
-    db = Database(projectConfig)
-    db.clear(DBCollections.ASTs)
-    print("Building graphs...")
-    for dirname, dirnames, filenames in os.walk(projectConfig["target-dir"]):
-        for filename in filenames:
-            if not filename.endswith(".java"):
-                continue
-            filePath = os.path.join(dirname, filename)
-            print("Handling: " + filePath)
-            print("Building AST...")
-            astBuilder = ASTBuilder(projectConfig)
-            astBuilder.build(filePath)
-            astBuilder.dump()
-            ast = astBuilder.getAST()
-            packageName = ast.getProperty("package")
-            baseName = os.path.splitext(filename)[0]
-            ast.exportNew(f"{packageName}.{baseName}")
-    print("Done")
-    print("Dumping database...")
-    db.commit()
-    OrientDB(projectConfig).populateASTs()
-
-
-def runCFGBuilding(projectConfig):
-    db = Database(projectConfig)
-    db.clear(DBCollections.CFGs)
-    print("Building graphs...")
-    for dirname, dirnames, filenames in os.walk(projectConfig["target-dir"]):
-        for filename in filenames:
-            if not filename.endswith(".java"):
-                continue
-            filePath = os.path.join(dirname, filename)
-            print("Handling: " + filePath)
-            print("Building CFGs...")
-            cfgBuilder = CFGBuilder(projectConfig)
-            cfgBuilder.build(filePath)
-            cfgBuilder.dump()
-            cfgs = cfgBuilder.getCFGs()
-            for qn, CFG in cfgs.items():
-                CFG.exportNew(filename=qn)
-    print("Done")
-    print("Dumping database...")
-    db.commit()
-    OrientDB(projectConfig).populateCFGs()
-
-
-def runDFGBuilding(projectConfig):
-    db = Database(projectConfig)
-    db.clear(DBCollections.DFGs)
-    print("Building graphs...")
-    for dirname, dirnames, filenames in os.walk(projectConfig["target-dir"]):
-        for filename in filenames:
-            if not filename.endswith(".java"):
-                continue
-            filePath = os.path.join(dirname, filename)
-            print("Handling: " + filePath)
-            print("Building DFGs...")
-            cfgs = db.getCFGsByFilePath(filePath)
-
-            # Если нет функций и их CFG, то следовательно нет и DFG
-            if len(cfgs) == 0:
-                continue
-
-            ast = db.getASTByFilePath(filePath)
-            dfgBuilder = DFGBuilder(projectConfig)
-            dfgBuilder.build(filePath, ast)
-            dfgBuilder.dump()
-            dfgs = dfgBuilder.getDFGs()
-            for qn, DFG in dfgs.items():
-                DFG.exportNew(filename=qn)
-    dfgs = db.getAllDFGs()
-    DFGBuilder.addIPDataFlows(dfgs, projectConfig)
-    print("Done")
-    print("Dumping database...")
-    db.commit()
-    OrientDB(projectConfig).populateDFGs()
-
-
-def runTaintFlowAnalysis(projectConfig):
-    astSources = SourcesManager(projectConfig).getSources()
-    astSinks = SinksManager(projectConfig).getSinks()
-
-    print(f"Found {len(astSources)} sources")
-    if len(astSources) == 0:
-        return
-
-    print(f"Found {len(astSinks)} sinks")
-    if len(astSinks) == 0:
-        return
-
-    gremlin = Gremlin(projectConfig)
-    db = Database(projectConfig)
-    db.clear(DBCollections.TaintFlows)
-
-    taintFlows = []
-    for astSink in astSinks:
-        print(astSink.getOptionalProperty("sinkText") + " in file " + astSink.getFile() + " at line " + str(
-            astSink.getLineOfCode()) + " (sharedId: " + astSink.getSharedId() + ")")
-        dftp, targetDFGName = gremlin.findASTNodeInDFG(astSink.sharedId)
-        print(f" DFG-node sharedId: {dftp.getSharedId()}")
-
-        if astSink.getOptionalProperty("args"):
-            dftp.setOptionalProperty("checkpoint", astSink.getOptionalProperty("args")[0])
-        elif astSink.getOptionalProperty("assignmentExpression"):
-            dftp.setOptionalProperty("checkpoint", astSink.getOptionalProperty("assignmentExpression"))
-
-        for astSource in astSources:
-            print("\t" + astSource.getOptionalProperty(
-                "sourceText") + " in file " + astSource.getFile() + " at line " + str(
-                astSource.getLineOfCode()) + " (sharedId: " + astSource.getSharedId() + ")")
-            dfsp, sourceDFGName = gremlin.findASTNodeInDFG(astSource.sharedId)
-            print(f"\t\tDFG-node sharedId: {dfsp.getSharedId()}")
-            if checkDFReachability(gremlin, dfsp.getSharedId(), dftp.getSharedId()):
-                taintFlows.append(dict(
-                    source=dfsp, sink=dftp, vulnerability=astSink.getOptionalProperty("vulnerability"))
-                )
-
-    taintFlows = deleteDuplicateTaintFlows(taintFlows)
-    db.setAllTaintFlows(taintFlows)
-    print("Dumping to database...")
-    db.commit()
-
-def runCallgraphAnalysis(projectConfig):
-    db = Database(projectConfig)
-    db.clear(DBCollections.CallGraph)
-    gremlin = Gremlin(projectConfig)
-    javaClasses = db.getAllJavaClasses()
-    for jc in javaClasses.values():
-        packageName = jc.package
-        className = jc.name
-        for method in jc.methods:
-            methodQN = f"{packageName}.{className}.{method.name}"
-            print(f"Searching for callees for {methodQN} ...")
-            gResp = gremlin.g.V().hasLabel("ASTNode").has("kind", "CLASS").where(
-                __.out().has("kind", "NAME").has("code", className)
-            ) \
-                .out().has("kind", "METHOD").where(
-                __.out().has("kind", "NAME").has("code", method.name)
-            ).repeat(__.out()).emit().has("kind", "CALL").out().has("kind", "NAME").values("code").toList()
-            if len(gResp) > 0:
-                db.putInCallGraph(methodQN, gResp)
-    db.commit()
+        return None
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python %s <command> [options]" % sys.argv[0])
-        return
+    parser = argparse.ArgumentParser(prog="cpg-analyzer")
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Command")
+    subparsers.add_parser("ast", help="Build AST")
+    subparsers.add_parser('cfg', help='Build CFG')
+    subparsers.add_parser('dfg', help='Build DFG')
+    parser_taint = subparsers.add_parser('taint', help='Run taint flow analysis')
+    parser_taint.add_argument('--web-framework', choices=['none', 'spring_mvc', 'struts2'],
+                              default='none', help='Web framework of analyzed application')
 
-    command = sys.argv[1]
-    if command == "init":
-        if len(sys.argv) < 3:
-            print("Usage: python %s init <project-name>" % sys.argv[0])
-            return
+    parser.add_argument('-t', '--target', required=True, help='File or directory to analyze')
+    parser.add_argument('--dump-to-db', action='store_true', help='Dump results (ast, cfg, dfg) to sqlite database')
+    parser.add_argument('--dump-figures', action='store_true', help='Dump results (ast, cfg, dfg) as figures')
+    parser.add_argument('--log-level', choices=[
+        LogLevelArg.none.name, LogLevelArg.info.name, LogLevelArg.warn.name, LogLevelArg.error.name, LogLevelArg.debug.name],
+                        default=LogLevelArg.info.name)
+    parser.add_argument('--log-dir', help='Directory for log and dumped files')
 
-        projectName = sys.argv[2]
-        print(f"Creating a project with name '{projectName}'...")
+    args = parser.parse_args()
+    target = Path(args.target)
 
-        if os.path.exists(projectName):
-            print(f"Directory with name '{projectName}' is existed")
-            return
+    if target.is_file():
+        target_is_file = True
+    elif target.is_dir():
+        target_is_file = False
+    else:
+        raise Exception("Specify correct target")
 
-        os.mkdir(projectName)
-        os.chdir(projectName)
-        with open(Config.TEMPLATE_PROJECT_CONFIG) as f:
-            projectConfigJson = json.load(f)
-        projectConfigJson["name"] = projectName
-        projectConfigJson["DB"] = f"{projectName}.db"
-        projectConfigJson["orientdb-name"] = projectName
-        with open(Config.PROJECT_CONFIG_FILENAME, "w") as f:
-            json.dump(projectConfigJson, f, indent=4)
-    elif command == "run-static":
-        with open(Config.PROJECT_CONFIG_FILENAME) as f:
-            projectConfig = json.load(f)
+    set_global_log_level(LogLevelArg.from_str(args.log_level))
 
-        subcommand = sys.argv[2]
-        if subcommand == "all":
-            runJClassesExtracting(projectConfig)
-            runASTBuilding(projectConfig)
-            runCFGBuilding(projectConfig)
-            runDFGBuilding(projectConfig)
-            runTaintFlowAnalysis(projectConfig)
-            runCallgraphAnalysis(projectConfig)
-        elif subcommand == "classes":
-            runJClassesExtracting(projectConfig)
-        elif subcommand == "ast":
-            runASTBuilding(projectConfig)
-        elif subcommand == "cfg":
-            runCFGBuilding(projectConfig)
-        elif subcommand == "dfg":
-            runDFGBuilding(projectConfig)
-        elif subcommand == "taint":
-            runTaintFlowAnalysis(projectConfig)
-        elif subcommand == "callgraph":
-            runCallgraphAnalysis(projectConfig)
+    dump_to_db = args.dump_to_db
+    dump_figures = args.dump_figures
+    log_dir_param = args.log_dir
+    log_dir: Path | None = None
 
-    elif command == "web":
-        with open(Config.PROJECT_CONFIG_FILENAME) as f:
-            projectConfig = json.load(f)
+    if dump_figures or dump_to_db:
+        if not log_dir_param:
+            log_dir = Path(Config.APP_DATA_DIR) / target.name
+        else:
+            log_dir = Path(log_dir_param)
 
-        runWebApp(projectConfig)
+        if not log_dir.exists():
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.command == "ast":
+        if target_is_file:
+            ast = ASTBuilder.build_from_file(target)
+        else:
+            ast = AbstractSyntaxForestBuilder.build(target)
+
+        if dump_to_db:
+            ASTStorage(target.name, dest_dir=log_dir, overwrite=True).dump(ast.g)
+
+        if dump_figures:
+            ast.export(log_dir)
+
+    elif args.command == "cfg":
+        if target_is_file:
+            cfg = CFGBuilder.build_from_file(target)
+        else:
+            cfg = CFGBuilder.build_from_directory(target)
+
+        if dump_to_db:
+            CFGStorage(target.name, dest_dir=log_dir, overwrite=True).dump(cfg.g)
+
+        if dump_figures:
+            cfg.export(log_dir)
+    elif args.command == "dfg":
+        if target_is_file:
+            ast = ASTBuilder.build_from_file(target)
+            cfg = CFGBuilder.build_from_file(target)
+            java_classes = JavaClassExtractor.extract_info_from_file(target)
+            dfg_builder = DFGBuilder(ast, cfg, java_classes)
+            dfg = dfg_builder.build_from_file(target)
+        else:
+            ast = AbstractSyntaxForestBuilder.build(target)
+            cfg = CFGBuilder.build_from_directory(target)
+            java_classes = JavaClassExtractor.extract_from_directory(target)
+            dfg_builder = DFGBuilder(ast, cfg, java_classes)
+            dfg = dfg_builder.build_from_directory(target)
+
+        if dump_to_db:
+            ASTStorage(target.name, dest_dir=log_dir, overwrite=True).dump(ast.g)
+            CFGStorage(target.name, dest_dir=log_dir, overwrite=True).dump(cfg.g)
+            JavaClassesStorage(target.name, dest_dir=log_dir, overwrite=True).dump(list(java_classes.values()))
+            DFGStorage(target.name, dest_dir=log_dir, overwrite=True).dump(dfg.g)
+
+        if dump_figures:
+            ast.export(log_dir)
+            cfg.export(log_dir)
+            dfg.export(log_dir)
+    elif args.command == "taint":
+        if target_is_file:
+            ast = ASTBuilder.build_from_file(target)
+            cfg = CFGBuilder.build_from_file(target)
+            java_classes = JavaClassExtractor.extract_info_from_file(target)
+            dfg_builder = DFGBuilder(ast, cfg, java_classes)
+            dfg = dfg_builder.build_from_file(target)
+        else:
+            ast = AbstractSyntaxForestBuilder.build(target)
+            cfg = CFGBuilder.build_from_directory(target)
+            java_classes = JavaClassExtractor.extract_from_directory(target)
+            dfg_builder = DFGBuilder(ast, cfg, java_classes)
+            dfg = dfg_builder.build_from_directory(target)
+
+        if dump_to_db:
+            ASTStorage(target.name, dest_dir=log_dir, overwrite=True).dump(ast.g)
+            CFGStorage(target.name, dest_dir=log_dir, overwrite=True).dump(cfg.g)
+            JavaClassesStorage(target.name, dest_dir=log_dir, overwrite=True).dump(list(java_classes.values()))
+            DFGStorage(target.name, dest_dir=log_dir, overwrite=True).dump(dfg.g)
+
+        if dump_figures:
+            ast.export(log_dir)
+            cfg.export(log_dir)
+            dfg.export(log_dir)
+
+        taint_flow_analyzer = TaintFlowAnalyzer(ast, dfg, java_classes, WebFrameworkKind.from_str(args.web_framework))
+        taint_flows = taint_flow_analyzer.analyze()
+
+        logger.info(f"Found {len(taint_flows)} taint flows")
+
+        for tf in taint_flows:
+            print(tf)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

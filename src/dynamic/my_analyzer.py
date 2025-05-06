@@ -1,0 +1,10 @@
+from dynamic.dvja_driver import projectConfig, DVJADriver
+from dynamic.dynamic_analyzer import DynamicAnalyzer
+from taint_flow.endpoint_extractors.struts2_endpoint_extractor import Struts2EndpointExtractor
+from taint_flow.attack_endpoint_extractors.struts2_attack_endpoint_extractor import Struts2AttackEndpointExtractor
+
+analyzer = DynamicAnalyzer(project_config=projectConfig)
+analyzer.setEndpointExtractor(Struts2EndpointExtractor(project_config=projectConfig))
+analyzer.setAttackEndpointExtractor(Struts2AttackEndpointExtractor(project_config=projectConfig))
+analyzer.setWebDriver(DVJADriver())
+analyzer.run()

@@ -1,1 +1,6 @@
--e git+https://github.com/orientechnologies/pyorient.git@master#egg=pyorient
+SQLAlchemy==2.0.39
+networkx==3.4.2
+beautifulsoup4==4.12.3
+antlr4-python3-runtime==4.13.2
+graphviz==0.20.3
+lxml==5.3.2
